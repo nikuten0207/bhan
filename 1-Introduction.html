@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Animation complex - Centered (XZ movement)</title>
+    <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+    <script>
+      // カメラのY軸（高さ）を固定するカスタムコンポーネント
+      AFRAME.registerComponent('lock-y', {
+        schema: { y: { type: 'number', default: 0 } },
+        tick: function () {
+          const pos = this.el.object3D.position;
+          if (pos.y !== this.data.y) {
+            pos.y = this.data.y;
+          }
+        }
+      });
+
+      // 花弁の落下コンポーネント（スケール揺れなし）
+      AFRAME.registerComponent('petal-fall', {
+        schema: {
+          speedMin: { type: 'number', default: 0.4 },
+          speedMax: { type: 'number', default: 1.2 },
+          swayAmp: { type: 'number', default: 1.2 },
+          swayFreq: { type: 'number', default: 0.6 },
+          flutterAmp: { type: 'number', default: 0.6 },
+          flutterFreq: { type: 'number', default: 1.8 },
+          windX: { type: 'number', default: 0.12 },
+          windZ: { type: 'number', default: -0.02 },
+          floorY: { type: 'number', default: -12 },
+          topY: { type: 'number', default: 20 }
+        },
+        init: function () {
+          this.reset();
+          this.rotAxis = new THREE.Vector3(Math.random(), Math.random(), Math.random()).normalize();
+          this.rotSpeed = 0.5 + Math.random() * 2.0;
+          this.el.object3D.rotation.set(Math.random()*2, Math.random()*2, Math.random()*2);
+        },
+        reset: function () {
+          this.speed = this.data.speedMin + Math.random() * (this.data.speedMax - this.data.speedMin);
+          this.swayPhase = Math.random() * Math.PI * 2;
+          this.flutterPhase = Math.random() * Math.PI * 2;
+
+          // 生成範囲（半径50〜200の“その間”を面積均等でランダム）
+          const angle = Math.random() * Math.PI * 2;
+          const minR = 50, maxR = 200;
+          const t = Math.random();
+          const radius = Math.sqrt(minR*minR + t * (maxR*maxR - minR*minR));
+          const x = radius * Math.cos(angle);
+          const z = radius * Math.sin(angle);
+
+          const y = this.data.topY + Math.random() * 6;
+          this.el.setAttribute('position', `${x} ${y} ${z}`);
+        },
+        tick: function (time, delta) {
+          const dt = delta / 1000;
+          const obj = this.el.object3D;
+
+          this.swayPhase += dt * this.data.swayFreq;
+          this.flutterPhase += dt * this.data.flutterFreq;
+
+          const sway = Math.sin(this.swayPhase) * this.data.swayAmp * (0.7 + Math.random()*0.6);
+          const flutter = Math.sin(this.flutterPhase) * this.data.flutterAmp;
+
+          const windX = this.data.windX * (0.8 + Math.random()*0.4);
+          const windZ = this.data.windZ;
+
+          obj.position.y -= this.speed * dt * (0.85 + 0.3 * Math.abs(Math.cos(this.flutterPhase)));
+          obj.position.x += (sway * dt) + windX * dt;
+          obj.position.z += windZ * dt + Math.cos(this.swayPhase * 0.5) * 0.02 * dt;
+
+          obj.rotateOnAxis(this.rotAxis, this.rotSpeed * dt);
+
+          if (obj.position.y < this.data.floorY) {
+            this.reset();
+          }
+        }
+      });
+
+      // DOM 準備後に複数の花弁を生成（スケール固定）
+      document.addEventListener('DOMContentLoaded', () => {
+        const scene = document.querySelector('a-scene');
+        const COUNT = 280; // 花びらの数を増加
+        const useModel = !!document.querySelector('#test2');
+        const FIXED_SCALE = '0.18 0.18 0.18'; // 軽やかに小さめへ
+
+        for (let i = 0; i < COUNT; i++) {
+          const ent = document.createElement('a-entity');
+
+          ent.setAttribute('petal-fall', {
+            speedMin: 0.8,
+            speedMax: 1.2,
+            swayAmp: 0.3,
+            swayFreq: 0.6,
+            flutterAmp: 0.4,
+            flutterFreq: 1.2,
+            windX: 0.05,
+            windZ: -0.01,
+            floorY: -16,
+            topY: 28
+          });
+
+          ent.setAttribute('scale', FIXED_SCALE);
+
+          if (useModel) {
+            ent.setAttribute('gltf-model', '#test2');
+          } else {
+            ent.innerHTML = `<a-cylinder radius="0.12" height="0.02" color="#F8BBD0" segments-radial="12"></a-cylinder>`;
+          }
+
+          scene.appendChild(ent);
+        }
+      });
+
+      // ランダムな回転を適用し、多層配置するカスタムコンポーネント
+      AFRAME.registerComponent('multi-layer-placement', {
+        schema: {
+          radii: { type: 'string', default: '50, 200' },
+          counts: { type: 'string', default: '8, 60' },    
+          model: { type: 'string', default: '#test1' },
+          yOffset: { type: 'number', default: -10 },  
+          scales: { type: 'string', default: '0.8 0.8 0.8 | 1.0 1.0 1.0' }
+        },
+
+        init: function () {
+          const data = this.data;
+          const el = this.el;
+          
+          const radiiArray = data.radii.split(',').map(r => parseFloat(r.trim()));
+          const countsArray = data.counts.split(',').map(c => parseInt(c.trim()));
+          const scalesArray = data.scales.split('|').map(s => s.trim());
+
+          radiiArray.forEach((radius, layerIndex) => {
+            const count = countsArray[layerIndex] || countsArray[0];
+            const scale = scalesArray[layerIndex] || scalesArray[0];
+            const angleStep = 360 / count;
+
+            for (let i = 0; i < count; i++) {
+              const angle = i * angleStep;
+              const radians = THREE.MathUtils.degToRad(angle);
+
+              const x = radius * Math.sin(radians);
+              const z = -radius * Math.cos(radians);
+
+              const randomRotationY = Math.random() * 360;
+
+              const modelEl = document.createElement('a-entity');
+              modelEl.setAttribute('gltf-model', data.model);
+              modelEl.setAttribute('scale', scale);
+              modelEl.setAttribute('position', `${x} ${data.yOffset} ${z}`);
+              modelEl.setAttribute('rotation', `0 ${randomRotationY} 0`);
+
+              el.appendChild(modelEl);
+            }
+          });
+        }
+      });
+    </script>
+  </head>
+
+  <body>
+    <a-scene>
+      <a-assets>
+        <a-asset-item id="test1" src="桜吹雪(仮）.glb"></a-asset-item>
+        <a-asset-item id="test2" src="桜花びら.glb"></a-asset-item>
+      </a-assets>
+
+      <a-entity id="cameraRig" position="0 0 0" lock-y="y: 0">
+        <a-entity
+          camera
+          look-controls="pointerLockEnabled: true"
+          wasd-controls="acceleration: 50"
+        ></a-entity>
+      </a-entity>
+
+      <a-entity
+        multi-layer-placement="
+          radii: 50, 200;
+          counts: 12, 80;
+          scales: 0.7 0.7 0.7 | 0.9 0.9 0.9;
+          model: #test1;
+          yOffset: -10;"
+      ></a-entity>
+
+      <a-sky color="#ECECEC"></a-sky>
+    </a-scene>
+  </body>
+</html>
